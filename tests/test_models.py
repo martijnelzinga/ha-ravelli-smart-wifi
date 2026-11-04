@@ -305,10 +305,10 @@ def test_supported_models() -> None:
         assert not SUPPORTED_MODELS[code].has_ducting
 
 
-@pytest.mark.parametrize("model", [1, 14])
 @pytest.mark.parametrize("code", [0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 42])
-def test_unread_board_status_means_nothing(model: int, code: int) -> None:
-    """No cycle was read on these boards: each code is unknown, on and not igniting."""
+def test_unread_board_status_means_nothing(code: int) -> None:
+    """No cycle was read on STILO: each code is unknown, on and not igniting."""
+    model = 14
     decoded = state({2: code}, model=model)
 
     assert decoded.status_key == "unknown"
@@ -345,6 +345,36 @@ def test_ktr_hydro_status_table(
     assert decoded.is_on is is_on
     assert decoded.is_igniting is is_igniting
     assert decoded.in_alarm is False
+
+
+@pytest.mark.parametrize(
+    ("code", "key", "is_on", "is_igniting"),
+    [
+        (0, "off", False, False),
+        # "Waiting restart": started again before final cleaning had ended.
+        (1, "waiting_start", True, True),
+        (2, "ignition", True, True),
+        (3, "waiting_flame", True, True),
+        (4, "flame_present", True, True),
+        (5, "working", True, False),
+        # Seen every 30 minutes while working, never on the remote.
+        (6, "unknown", True, False),
+        (7, "final_cleaning", True, False),
+        (8, "unknown", True, False),
+        (9, "unknown", True, False),
+    ],
+)
+def test_air_touch_status_table(
+    code: int, key: str, is_on: bool, is_igniting: bool
+) -> None:
+    """Model 1 codes read on its remote over two cycles; only 0 is off."""
+    decoded = state({2: code}, model=1)
+
+    assert decoded.status_key == key
+    assert decoded.is_on is is_on
+    assert decoded.is_igniting is is_igniting
+    assert decoded.in_alarm is False
+    assert SUPPORTED_MODELS[1].off_verified is True
 
 
 def test_ktr_hydro_temperatures() -> None:

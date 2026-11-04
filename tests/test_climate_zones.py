@@ -401,7 +401,7 @@ async def test_stilo(hass: HomeAssistant, aioclient_mock: AiohttpClientMocker) -
 async def test_air_touch(
     hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
 ) -> None:
-    """Model 1: target, power and room temperature; no code with a meaning yet."""
+    """Model 1: target, power and room temperature; code 0 is off."""
     module = await setup_model(hass, aioclient_mock, 1)
     registry = er.async_get(hass)
 
@@ -415,12 +415,12 @@ async def test_air_touch(
     assert module.count(PATH_GET, key="020", category="11") == 0
 
     stove = climate(hass, "stove")
-    assert stove.state == "heat"
+    assert stove.state == "off"
     assert stove.attributes["current_temperature"] == 21
     assert stove.attributes["fan_modes"] == ["1", "2", "3", "4", "5"]
     ambient = entity_id_for(hass, "sensor", "ambient_temperature")
     assert hass.states.get(ambient).state == "21.0"
-    assert hass.states.get(entity_id_for(hass, "sensor", "status")).state == "unknown"
+    assert hass.states.get(entity_id_for(hass, "sensor", "status")).state == "off"
 
     await call(hass, "stove", "set_temperature", temperature=22)
     await call(hass, "stove", "set_fan_mode", fan_mode="4")
@@ -430,11 +430,91 @@ async def test_air_touch(
     assert module.categories[2][51] == 4
 
 
+@pytest.mark.parametrize(
+    ("status", "key", "action"),
+    [
+        (1, "waiting_start", "preheating"),
+        (2, "ignition", "preheating"),
+        (3, "waiting_flame", "preheating"),
+        (4, "flame_present", "preheating"),
+        (5, "working", "heating"),
+        (7, "final_cleaning", "off"),
+    ],
+)
+async def test_air_touch_status_is_shown_and_stays_on(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    status: int,
+    key: str,
+    action: str,
+) -> None:
+    """Every code but 0 keeps the thermostat on, final cleaning included."""
+    module = await setup_model(hass, aioclient_mock, 1)
+    module.common[2] = status
+    await hass.config_entries.async_entries(DOMAIN)[0].runtime_data.async_refresh()
+    await hass.async_block_till_done()
+
+    assert hass.states.get(entity_id_for(hass, "sensor", "status")).state == key
+    state = climate(hass, "stove")
+    assert state.state == "heat"
+    assert state.attributes["hvac_action"] == action
+
+
+@pytest.mark.parametrize(
+    ("status", "sent"), [(0, 1), (1, 0), (5, 0), (6, 0), (7, 0), (42, 0)]
+)
+async def test_air_touch_turns_on_from_code_0_only(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker, status: int, sent: int
+) -> None:
+    """Final cleaning (7) and unknown codes, 6 included, count as on."""
+    module = await setup_model(hass, aioclient_mock, 1)
+    module.common[2] = status
+
+    await call(hass, "stove", "turn_on")
+
+    assert module.count(PATH_GET, key="022", status="1") == sent
+
+
+@pytest.mark.parametrize("status", [1, 2, 3, 4])
+async def test_air_touch_turn_off_without_flame_is_refused(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker, status: int
+) -> None:
+    """Before the flame, like the page and the other boards, off waits."""
+    module = await setup_model(hass, aioclient_mock, 1)
+    module.common[2] = status
+    module.extra["flame"] = 0
+
+    with pytest.raises(ServiceValidationError) as err:
+        await call(hass, "stove", "turn_off")
+
+    assert err.value.translation_key == "turn_off_during_ignition"
+    assert module.count(PATH_GET, key="022") == 0
+
+    module.extra["flame"] = 1
+    await call(hass, "stove", "turn_off")
+    assert module.count(PATH_GET, key="022", status="0") == 1
+
+
+@pytest.mark.parametrize("status", [0, 5, 6, 7, 42])
+async def test_air_touch_turn_off_outside_ignition_is_sent(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker, status: int
+) -> None:
+    """Off is sent in every other code, with or without a flame; not at 0."""
+    module = await setup_model(hass, aioclient_mock, 1)
+    module.common[2] = status
+    module.extra["flame"] = 0
+
+    await call(hass, "stove", "turn_off")
+
+    assert module.count(PATH_GET, key="022", status="0") == (0 if status == 0 else 1)
+
+
 @pytest.mark.parametrize("model", [1, 6, 14])
 async def test_unread_board_flame_is_disabled_by_default(
     hass: HomeAssistant, aioclient_mock: AiohttpClientMocker, model: int
 ) -> None:
-    """KTR-HYDRO reported a flame while off; nothing was read on the others."""
+    """KTR-HYDRO reported a flame while off, AIR-TOUCH long after the fire;
+    nothing was read on STILO."""
     await setup_model(hass, aioclient_mock, model)
 
     entry = er.async_get(hass).async_get(entity_id_for(hass, "binary_sensor", "flame"))
@@ -491,7 +571,7 @@ async def test_ktr_hydro_schedule_switch_is_unknown_when_flags_disagree(
     assert bool(response[calendar]["events"]) is (expected != "off")
 
 
-@pytest.mark.parametrize("model", [1, 14])
+@pytest.mark.parametrize("model", [14])
 @pytest.mark.parametrize("status", [0, 5, 42])
 async def test_unread_board_turn_on_is_refused(
     hass: HomeAssistant, aioclient_mock: AiohttpClientMocker, status: int, model: int
@@ -507,7 +587,7 @@ async def test_unread_board_turn_on_is_refused(
     assert module.count(PATH_GET, key="022") == 0
 
 
-@pytest.mark.parametrize("model", [1, 14])
+@pytest.mark.parametrize("model", [14])
 @pytest.mark.parametrize("flame", [0, 1, 255])
 @pytest.mark.parametrize("status", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 42])
 async def test_unread_board_turn_off_is_always_sent(
