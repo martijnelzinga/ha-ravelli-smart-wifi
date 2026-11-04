@@ -115,7 +115,7 @@ KTR_HYDRO_STATUS_KEYS: dict[int, str] = {
 }
 # Codes of an AIR-TOUCH stove, read on its remote control over two cycles:
 # 1 "waiting restart" after a start during final cleaning, 2 "start", 3
-# "waiting for flame", 4 "flame present", 5 "working" and "modulation", 7
+# "waiting for flame", 4 "flame present", 5 "working" and "modulation eco", 7
 # "final cleaning",
 # also after off during an ignition. 6 came every 30 minutes while working,
 # for 15 to 20 seconds with the extractor at full speed, and was never seen on
