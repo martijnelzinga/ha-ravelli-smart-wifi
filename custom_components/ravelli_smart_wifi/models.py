@@ -222,6 +222,26 @@ class StoveModel:
 
 
 SUPPORTED_MODELS: dict[int, StoveModel] = {
+    # Transcribed from the page of the module: category 2 only, the main,
+    # power and clock registers, no comfort settings. Read on a stove that was
+    # off: register 6 holds the room temperature of the remote in whole
+    # degrees, register 0 stays at 0. No cycle was read yet: each code is
+    # unknown, counts as on and never as an ignition, so off is always sent
+    # and turning on is refused.
+    1: StoveModel(
+        code=1,
+        name="AIR-TOUCH",
+        categories=(CATEGORY_MAIN,),
+        writable=_COMMON_WRITABLE - {REG_COMFORT_DELAY, REG_COMFORT_DELTA},
+        status_keys={},
+        alarm_codes=frozenset(),
+        off_codes=frozenset(),
+        ambient_register=REG_KTR_AMBIENT_TEMP,
+        ambient_divisor=1,
+        # flame read 0 with the stove off; never read while it burns.
+        flame_shows_fire=False,
+        schedule_flag_verified=False,
+    ),
     # Transcribed from the page of the module: category 2 only, ambient in
     # register 6 (remote probe), water in half degrees, both read against the
     # remote. Register 51 is 0 MIN or 1 MAX, not a power level: it is not

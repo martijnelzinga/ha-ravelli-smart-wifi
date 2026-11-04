@@ -29,12 +29,14 @@ Success criteria:
 ### Supported stove boards
 
 The module reports a numeric board model. Support covers the RDS family,
-which shares one register layout in the vendor UI, and the KTR-AIR BLDC,
-KTR-HYDRO and STILO boards, which use the same main and clock registers
+which shares one register layout in the vendor UI, and the AIR-TOUCH,
+KTR-AIR BLDC, KTR-HYDRO and STILO boards, which use the same main and clock
+registers
 (section 12).
 
 | Model code | Vendor name | Status |
 |---|---|---|
+| 1 | AIR-TOUCH | Transcribed from the vendor UI; ambient temperature, target and power read on a stove that was off; no code is trusted as off yet, so turning on is refused and turning off is always sent |
 | 6 | KTR-HYDRO | Transcribed from the vendor UI; status, ambient and water temperatures checked over one cycle by a user; only code 0 is off; turning the schedule on and storing a program refused |
 | 7 | AIR-RDS | Verified on real hardware |
 | 8 | KTR-AIR BLDC | Transcribed from the vendor UI; status, on and off, ambient temperature and front fan checked on a stove by a user; only code 0 is off |
@@ -42,7 +44,7 @@ KTR-HYDRO and STILO boards, which use the same main and clock registers
 | 12 | ECO-RDS | Transcribed from the vendor UI, untested |
 | 14 | STILO | Transcribed from the vendor UI, untested; no code is trusted as off, so turning on is refused and turning off is always sent; no ambient temperature |
 
-Every other model code (1, 2, 5, 9, 10, 15) is refused during
+Every other model code (2, 5, 9, 10, 15) is refused during
 setup with a message that names the code and points to the issue tracker.
 
 ### In scope
@@ -231,17 +233,17 @@ default" are created disabled in the entity registry.
 | climate | Water | registers 49, 1 | Models 6 and 11 only. Target 30 to 80 °C. Register 1 in half degrees on model 6. |
 | sensor | Status | register 2 | Enum of the 7 keys; `unknown` state for any other code; attribute `raw_value`. |
 | sensor | Alarm | register 3, `alr` | State is the module's alarm text; `code N` with the raw code of register 3 when the text is empty and the code is not 0; `none` otherwise; attribute `raw_value`. |
-| sensor | Ambient temperature | register 0, or 6 on models 6 and 8 | °C, measurement. Half degrees on register 0, whole degrees on register 6; 0 is no value. Always empty on model 14 until its register is read on a stove. |
+| sensor | Ambient temperature | register 0, or 6 on models 1, 6 and 8 | °C, measurement. Half degrees on register 0, whole degrees on register 6; 0 is no value. Always empty on model 14 until its register is read on a stove. |
 | sensor | Water temperature | register 1 | Models 6 and 11 only. °C, measurement; in half degrees on model 6; 0 is no value. |
 | sensor | Extractor speed | register 5 | rpm, measurement, enabled by default. |
 | sensor | Wi-Fi signal | `rssi` | dBm, diagnostic, off by default. |
 | binary_sensor | Alarm | status 8 or 9 on models 7, 11 and 12, or register 3 non-zero | Device class `problem`. |
-| binary_sensor | Flame | `flame` | Created only when the module reports a value other than 255. Off by default on models 6, 8 and 14. |
+| binary_sensor | Flame | `flame` | Created only when the module reports a value other than 255. Off by default on models 1, 6, 8 and 14. |
 | binary_sensor | Firmware update available | `fwUpdate` | Device class `update`, diagnostic. |
 | number | Power level | register 51 | 1 to 5. Deliberate duplicate of the climate fan mode, as in Agua IOT. Absent on model 6. |
-| number | Comfort climate delta | register 74 | 0 to 20 °C, config. Absent on models 6, 8 and 14. |
-| number | Comfort climate delay | register 73 | 0 to 9 min, config. Absent on models 6, 8 and 14. |
-| switch | Schedule | schedule `enabled` | Config. Toggling rewrites the table with the flag changed. On models 6 and 14, `unknown` while `chrono` disagrees with the flag; the calendar then shows every enabled program. |
+| number | Comfort climate delta | register 74 | 0 to 20 °C, config. Absent on models 1, 6, 8 and 14. |
+| number | Comfort climate delay | register 73 | 0 to 9 min, config. Absent on models 1, 6, 8 and 14. |
+| switch | Schedule | schedule `enabled` | Config. Toggling rewrites the table with the flag changed. On models 1, 6 and 14, `unknown` while `chrono` disagrees with the flag; the calendar then shows every enabled program. |
 | button | Synchronize clock | registers 59 to 64 | Config. Writes Home Assistant local time. |
 | calendar | Schedule | schedule programs | Read-only, section 8. |
 
@@ -415,6 +417,9 @@ Not verified:
 - On STILO: every status code and the off code, which register holds the
   ambient temperature and in which unit, `flame`, which schedule flag the
   stove follows, the ducting registers 184 to 189, and every command.
+- On AIR-TOUCH: every status code, 0 included (read once, with the stove
+  off), `flame` while the stove burns, the alarm values, which schedule flag
+  the stove follows, and every command.
 
 ## 11. Repository conventions
 
@@ -467,3 +472,4 @@ Not verified:
 | KTR-AIR BLDC ducting selects | In configuration 2 (register 175), the front fan sensor stays empty, and three selects write registers 188 "Ducting fan" (0 off, 1 to 5, 6 auto), 189 "Ducting direction" (0 rear left to 4 rear right) and 190 "Ducting split" (0 front / rear left, 1 equal, 2 rear / rear right), with those bounds. They are created only when 175 reads 2 at setup and are unavailable while it reads anything else. Model flag `has_front_fan` renamed `ktr_ducting` | Issue 3, eleven diagnostics downloads against the vendor app of a stove in configuration 2: every value of 189 and 190, and 188 at 2 and 3, read as set; the user reports that the app's "Vent. front" (188) drives the rear air. 188 at 0 seen on a screenshot only, 6 not seen. A write from Home Assistant is not verified yet: shipped in a beta for the user to check. These settings do not start or stop the stove |
 | KTR-AIR BLDC ducting writes under the lock | A write of 188, 189 or 190 first reads category 6 again under the lock, checks the model and that 175 still reads 2, and is refused (`ducting_setup_not_verified`) otherwise; nothing is sent | In 2026.10.6b4 only the availability of the selects checked 175, from the last poll: a command waiting for the lock could reach a register whose meaning had changed |
 | KTR-HYDRO off trusted | Status keys 0 off, 1 waiting to start, 2 ignition, 5 working, 7 final cleaning, 8 eco stop; 3, 4, 6 and 9 have no key. Code 0 is off (`off_codes` of 0 only): turning on is sent from 0. Turning the schedule on and storing a program are refused while `schedule_flag_verified` is false, not only while no off code is known | Issue 2, one cycle read on the remote on 2026-11-03: 0 showed the power icon with the stove cold, eco stop has its own code (8), as on KTR-AIR BLDC. Owner's decision, with the same criteria as for KTR-AIR BLDC. The remote showed the schedule active while `key=033` said disabled: a program written from Home Assistant could not be checked against what the stove follows |
+| AIR-TOUCH (model 1) | Supported, transcribed from the vendor UI: category 2 only, target 50 and power 51 writable with the bounds of the other boards, clock 59 to 64, no comfort settings, no ducting, no water. Ambient temperature in register 6 in whole degrees, as on KTR-AIR BLDC and KTR-HYDRO; 0 is no value. Empty status table and `off_codes`, as on STILO: turning on, turning the schedule on and storing a program are refused, off is always sent. Flame sensor disabled by default and `schedule_flag_verified` false | Readings of a stove that was off, on 2026-11-04, compared with its remote control (row of that date in `docs/hardware-verification.md`). The page of the module shows register 0 as "Internal probe" and register 6 as "Handheld probe"; register 0 stayed at 0 while 6 followed the remote. Code 0 was read with the remote showing OFF, once: one reading is not a cycle, so no code is trusted as off yet |

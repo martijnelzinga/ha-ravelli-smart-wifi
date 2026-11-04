@@ -280,8 +280,9 @@ def test_model_must_be_a_number() -> None:
 
 
 def test_supported_models() -> None:
-    """Six model codes, with the categories each one polls."""
-    assert sorted(SUPPORTED_MODELS) == [6, 7, 8, 11, 12, 14]
+    """Seven model codes, with the categories each one polls."""
+    assert sorted(SUPPORTED_MODELS) == [1, 6, 7, 8, 11, 12, 14]
+    assert SUPPORTED_MODELS[1].name == "AIR-TOUCH"
     assert SUPPORTED_MODELS[6].name == "KTR-HYDRO"
     assert SUPPORTED_MODELS[7].name == "AIR-RDS"
     assert SUPPORTED_MODELS[8].name == "KTR-AIR BLDC"
@@ -294,26 +295,28 @@ def test_supported_models() -> None:
     assert SUPPORTED_MODELS[11].categories == (2, 11)
     assert SUPPORTED_MODELS[12].categories == (2, 11)
     assert SUPPORTED_MODELS[14].categories == (2,)
+    assert SUPPORTED_MODELS[1].categories == (2,)
     assert SUPPORTED_MODELS[7].has_ducting and not SUPPORTED_MODELS[7].has_water
     for code in (6, 11):
         assert SUPPORTED_MODELS[code].has_water
         assert not SUPPORTED_MODELS[code].has_ducting
-    for code in (8, 12, 14):
+    for code in (1, 8, 12, 14):
         assert not SUPPORTED_MODELS[code].has_water
         assert not SUPPORTED_MODELS[code].has_ducting
 
 
+@pytest.mark.parametrize("model", [1, 14])
 @pytest.mark.parametrize("code", [0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 42])
-def test_unread_board_status_means_nothing(code: int) -> None:
-    """No code was read on STILO: each is unknown, on and not igniting."""
-    decoded = state({2: code}, model=14)
+def test_unread_board_status_means_nothing(model: int, code: int) -> None:
+    """No cycle was read on these boards: each code is unknown, on and not igniting."""
+    decoded = state({2: code}, model=model)
 
     assert decoded.status_key == "unknown"
     assert decoded.is_on is True
     # Off is never held back waiting for a flame nobody saw on this board.
     assert decoded.is_igniting is False
     assert decoded.in_alarm is False
-    assert SUPPORTED_MODELS[14].off_verified is False
+    assert SUPPORTED_MODELS[model].off_verified is False
 
 
 @pytest.mark.parametrize(
@@ -358,6 +361,12 @@ def test_stilo_has_no_ambient_temperature() -> None:
     assert state({2: 5, 0: 43, 6: 21}, model=14).ambient_temperature is None
 
 
+def test_air_touch_ambient_temperature() -> None:
+    """Room from register 6 in whole degrees, as read against the remote."""
+    assert state({2: 0, 0: 0, 6: 18}, model=1).ambient_temperature == 18
+    assert state({2: 0, 0: 0, 6: 0}, model=1).ambient_temperature is None
+
+
 @pytest.mark.parametrize(
     ("model", "register", "value"),
     [
@@ -387,6 +396,11 @@ def test_stilo_has_no_ambient_temperature() -> None:
         (14, 51, 1),
         (14, 51, 5),
         (14, 64, 0x99),
+        (1, 50, 5),
+        (1, 50, 41),
+        (1, 51, 1),
+        (1, 51, 5),
+        (1, 64, 0x99),
     ],
 )
 def test_valid_writes_pass(model: int, register: int, value: int) -> None:
@@ -441,6 +455,12 @@ def test_out_of_range_writes_are_refused(
         (14, 74),
         (14, 184),
         (14, 187),
+        # No water circuit, comfort or ducting on the page for this board.
+        (1, 49),
+        (1, 73),
+        (1, 74),
+        (1, 184),
+        (1, 187),
         (7, 0),
         (7, 2),
         (7, 999),
